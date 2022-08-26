@@ -1,6 +1,6 @@
-# Rust Smart Contract Template
-
-## Getting started
+# Voting App
+  A sample voting app 
+## Get Started
 
 To get started with this template:
 
