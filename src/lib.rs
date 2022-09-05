@@ -1,84 +1,163 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::near_bindgen;
+use near_sdk::collections::{LookupMap, Vector};
+use near_sdk::serde::{Deserialize, Serialize};
+use near_sdk::{env, near_bindgen, AccountId};
 
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug)]
+#[serde(crate = "near_sdk::serde")]
+enum Positions {
+    President,
+    Governer,
+    Senator,
+}
 
 #[near_bindgen]
-#[derive(Default, BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug)]
+#[serde(crate = "near_sdk::serde")]
 pub struct Voter {
-    name:String,
-    president_vote:String,
-    senator_vote:String,
-    mp_vote:String,
+    name: String,
+    account: AccountId,
+    timestamp: u64,
+}
+
+#[near_bindgen]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Votes {
+    position: Positions,
+    candidate_name: String,
+    voter: AccountId,
+    timestamp: u64,
+}
+
+#[near_bindgen]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Candidate {
+    name: String,
+    account: AccountId,
 }
 
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct App {
-    voters:Vec<Voter>,
-    president_vote:Vec<String>,
-    senator_vote:Vec<String>,
-    mp_vote:Vec<String>,
+    votes: Vector<Votes>,
+    voters: Vector<Voter>,
+    candidates: LookupMap<Positions, Vec<Candidate>>,
 }
 
-impl Default for App{
-    fn default() -> self{
-    return App{
-        voters : vec![]
-        president : vec![]
-        senator : vec![]
-        mp : vec![]
+impl Default for App {
+    fn default() -> Self {
+        return App {
+            votes: Vector::new(b"r".to_vec()),
+            voters: Vector::new(b"r".to_vec()),
+            candidates: LookupMap::new(b"r".to_vec()),
+        };
     }
-   }
 }
 
 #[near_bindgen]
 impl App {
-    pub fn vote(&mut self, name_vote:String, president_candidate:String, sanator_candidate:String, mp_candidate:String){
-      
-        let mut candidate_president_option: Option<String> = None;
-        let mut candidate_sanator_option: Option<String> = None;
-        let mut candidate_mp_option: Option<String> = None;
+    pub fn get_voters(&self) -> Vec<Voter> {
+        self.voters.to_vec()
+    }
 
-        for elem in self.president.iter(){
-            if elem.eq(&president_candidate){
-                candidate_president_option = Some(elem.clone());
-            }
+    pub fn get_votes(&self) -> Vec<Votes> {
+        self.votes.to_vec()
+    }
+
+    pub fn register_voter(&mut self, name: String) {
+        let voter = Voter {
+            name: name,
+            account: env::signer_account_id(),
+            timestamp: env::block_timestamp(),
+        };
+        self.voters.push(&voter);
+    }
+
+    pub fn register_candidate(&mut self, name: String, position: String) {
+        let mut canditates_position: Option<Positions> = None;
+
+        if position == "govener" {
+            canditates_position = Some(Positions::Governer);
+        } else if position == "senator" {
+            canditates_position = Some(Positions::Senator)
+        } else if position == "president" {
+            canditates_position = Some(Positions::President)
         }
-        for elem in self.senator.iter(){
-            if elem.eq(&senator_candidate){
-                candidate_senator_option = Some(elem.clone());
+
+        match canditates_position {
+            Some(ps) => {
+                let registerd_candidates = self.candidates.get(&ps);
+
+                let candidate = Candidate {
+                    name: name,
+                    account: env::signer_account_id(),
+                };
+
+                match registerd_candidates {
+                    Some(mut candiates) => {
+                        candiates.push(candidate);
+                        self.candidates.insert(&ps, &candiates);
+                    }
+                    None => {
+                        let mut tmp: Vec<Candidate> = vec![];
+                        tmp.push(candidate);
+                        self.candidates.insert(&ps, &tmp);
+                    }
+                }
             }
-        }
-        for elem in self.mp.iter(){
-            if elem.eq(&mp_candidate){
-                candidate_mp_option = Some(elem.clone());
-            }
-        }
-        if candidate_president_option == None {
-            env::log_str("President vote name not found!");
-        }else if candidate_sanator_option == None{
-            env::log_str("Senator vote name not found!");
-        }else if candidate_mp_option == None{
-            env::log_str("Mp vote name not found");
-        }else{
-            let vt:Voter = Voter{
-                name:name_vote,
-                president_vote:candidate_president_option.unwrap(),
-                senator_vote:candidate_senator_option.unwrap(),
-                mp_vote:candidate_mp_option.unwrap(),
-            };
-            self.voters.push(vt)
+            None => env::panic_str("Postion not known, please provide an appropriate position"),
         }
     }
-    pub fn register_candidate(&mut self, name:String, position:String){
-        if position == "president".to_string(){
-            self.president.push(name);
-        }else if position == "senator".to_string(){
-            self.senator.push(name);
-        }else if position == "mp".to_string(){
-            self.mp.push(name);
-        }else env::log_str("position not known!");
+
+    pub fn vote(&mut self, candidate_name: String, position: String) {
+        let mut canditates_position: Option<Positions> = None;
+
+        if position == "govener" {
+            canditates_position = Some(Positions::Governer);
+        } else if position == "senator" {
+            canditates_position = Some(Positions::Senator)
+        } else if position == "president" {
+            canditates_position = Some(Positions::President)
         }
+
+        match canditates_position {
+            Some(ps) => {
+                let registerd_candidates = self.candidates.get(&ps);
+
+                match registerd_candidates {
+                    Some(cnd) => {
+                        let mut candidat_indx: Option<usize> = None;
+
+                        for (index, elem) in cnd.iter().enumerate() {
+                            if elem.name == candidate_name {
+                                candidat_indx = Some(index);
+                                break;
+                            }
+                        }
+
+                        match candidat_indx {
+                            Some(_the_candidate_index) => {
+                                let votes = Votes {
+                                    candidate_name: candidate_name,
+                                    voter: env::signer_account_id(),
+                                    timestamp: env::block_timestamp(),
+                                    position: ps,
+                                };
+                                self.votes.push(&votes);
+                            }
+                            None => {
+                                env::log_str("Te name of the candidate was not found in the system")
+                            }
+                        }
+                    }
+                    None => env::log_str("There are no candidates for this position provided "),
+                }
+            }
+            None => env::log_str("Postion not known, please provide an appropriate position"),
+        }
+    }
 }
 
 /*
@@ -92,8 +171,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_sdk::test_utils::{get_logs, VMContextBuilder};
-    use near_sdk::{testing_env, AccountId};
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::AccountId;
 
     // part of writing unit tests is setting up a mock context
     // provide a `predecessor` here, it'll modify the default context
@@ -105,25 +184,42 @@ mod tests {
 
     // TESTS HERE
     #[test]
-    fn register_candidate(){
-     let mut app: App = App::default();
-     app.register_candidate(name:"Steve".to_string(), position:"president".to_string());
-     assert_eq!(app.President.len(),1)
+    fn register_candidate() {
+        let mut app: App = App::default();
+        app.register_candidate("Steve".to_string(), "president".to_string());
+        let candidates = app.candidates.get(&Positions::President).unwrap();
+        assert_eq!(candidates.len(), 1)
     }
+
     #[test]
-    fn vote(){
-    let mut app: App = App::default();
-        app.register_candidate(name:"Steve".to_string(), position:"president".to_string());
-        app.register_candidate(name:"James".to_string(), position:"senator".to_string());
-        app.register_candidate(name:"Brian".to_string(), position:"mp".to_string());
+    fn register_voter() {
+        let user = AccountId::new_unchecked("steve.testnet".to_string());
+        let mut context = get_context(user.clone());
+        context.block_timestamp(9999);
 
-        assert_eq!(app.president.len(),1);
-        assert_eq!(app.senator.len(),1);
-        assert_eq!(app.mp.len(),1);
+        let mut app: App = App::default();
+        app.register_voter("Steve".to_string());
+        assert_eq!(app.voters.len(), 1)
+    }
 
-        app.vote(name_vote:"Steve".to_string, president_candidate:"Steve".to_string, name_vote:"James".to_string,
-         senator_candidate:"James".to_string, name_vote:"Brian".to_string, mp_candidate:"Brian".to_string)
+    #[test]
+    fn vote() {
+        let user = AccountId::new_unchecked("steve.testnet".to_string());
+        let mut context = get_context(user.clone());
+        context.block_timestamp(9999);
 
-         assert_eq!(app.voters.len(),1);
+        let mut app: App = App::default();
+
+        app.register_candidate("Steve".to_string(), "president".to_string());
+        let candidates = app.candidates.get(&Positions::President).unwrap();
+        assert_eq!(candidates.len(), 1);
+
+        let mut app: App = App::default();
+        app.register_voter("Steve".to_string());
+        assert_eq!(app.voters.len(), 1);
+
+        app.vote("Steve".to_string(), "president".to_string());
+
+        assert_eq!(app.votes.len(), 1)
     }
 }
